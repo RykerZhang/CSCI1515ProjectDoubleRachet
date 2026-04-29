@@ -31,7 +31,7 @@ void NetworkDriverImpl::connect(std::string address, int port) {
   if (address == "localhost")
     address = "127.0.0.1";
   this->socket->connect(
-      tcp::endpoint(boost::asio::ip::address::from_string(address), port));
+      tcp::endpoint(boost::asio::ip::make_address(address), port));
 }
 
 /**

@@ -14,6 +14,12 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 include(Boost)
 # include(Cryptopp)
+find_library(CRYPTOPP_LIB NAMES cryptopp PATHS /opt/homebrew/lib REQUIRED)
+add_library(cryptopp UNKNOWN IMPORTED)
+set_target_properties(cryptopp PROPERTIES
+  IMPORTED_LOCATION "${CRYPTOPP_LIB}"
+  INTERFACE_INCLUDE_DIRECTORIES "/opt/homebrew/include"
+)
 include(CTest)
 include(Doctest)
 include(Documentation)
