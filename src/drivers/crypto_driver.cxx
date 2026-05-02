@@ -282,12 +282,12 @@ std::pair<SecByteBlock, SecByteBlock>CryptoDriver::generateChainKey(SecByteBlock
   SecByteBlock currentkey(SHA256::DIGESTSIZE);
   SecByteBlock newchainkey (SHA256::DIGESTSIZE);
   
-  byte b1 = 0x01;
+  byte b1 = 0x10;
   HMAC<SHA256> hmac1(chainKey, chainKey.size());
   hmac1.Update(&b1, 1);
   hmac1.Final(currentkey.BytePtr());
 
-  byte b2 = 0x02;
+  byte b2 = 0x20;
   HMAC<SHA256> hmac2(chainKey, chainKey.size());
   hmac2.Update(&b2, 1);
   hmac2.Final(newchainkey.BytePtr());
