@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <map>
 #include <mutex>
 
 #include <boost/chrono.hpp>
@@ -48,4 +49,13 @@ private:
   SecByteBlock DH_current_private_value;
   SecByteBlock DH_current_public_value;
   SecByteBlock DH_last_other_public_value;
+
+  // Symmetric Ratchet Fields
+  SecByteBlock rootkey;
+  SecByteBlock sentchainkey;
+  SecByteBlock receivechainkey;
+  uint32_t sentmessagecount = 0;
+  uint32_t receivedmessagecount = 0;
+  uint32_t previouscount = 0;
+  std::map<std::pair<std::string, uint32_t>, SecByteBlock> skippedmessagekey;
 };

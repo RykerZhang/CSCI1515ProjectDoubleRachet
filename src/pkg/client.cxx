@@ -63,28 +63,37 @@ Message_Message Client::send(std::string plaintext) {
     CryptoPP::DH dh = std::get<0>(result);
     prv = std::get<1>(result);
     pub = std::get<2>(result);
-    this->prepare_keys(dh, prv, this->DH_last_other_public_value);
+    // DH ratchet derive new rootkey and sentchainkey
+    SecByteBlock dh_out = this->crypto_driver->DH_generate_shared_key(dh, prv, this->DH_last_other_public_value);
+    auto [new_rk, new_ck] = this->crypto_driver->generateRootKey(this->rootkey, dh_out);
+    this->rootkey = new_rk;
+    this->previouscount = this->sentmessagecount;
+    this->sentchainkey = new_ck;
+    this->sentmessagecount = 0;
     this->DH_switched = false;
     this->DH_current_public_value = pub;
     this->DH_current_private_value = prv;
   }
-  //encrypt and tag
-  std::pair<std::string, SecByteBlock>encryptresult = this->crypto_driver->AES_encrypt(this->AES_key, plaintext);
-  std::string ciphertext = std::get<0>(encryptresult);
-  SecByteBlock iv = std::get<1>(encryptresult);
+  // send chain, get message key
+  auto [currentkey, nextsentchainkey] = this->crypto_driver->generateChainKey(this->sentchainkey);
+  this->sentchainkey = nextsentchainkey;
+
+  // derive AES and HMAC keys from message key
+  SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
+  SecByteBlock hmackey = this->crypto_driver->HMAC_generate_key(currentkey);
+
+  // encrypt and tag
+  std::pair<std::string, SecByteBlock> encryptresult = this->crypto_driver->AES_encrypt(aeskey, plaintext);
+  std::string ciphertext = encryptresult.first;
+  SecByteBlock iv = encryptresult.second;
   Message_Message msg;
   msg.ciphertext = ciphertext;
-  //mac concatenation
-  std::string temp = std::string(iv.begin(), iv.end());
-  std::string input = temp+ciphertext;
-  //get hmac
-  std::string hmac = this->crypto_driver->HMAC_generate(this->HMAC_key, input);
-  msg.mac = hmac;
   msg.iv = iv;
   msg.public_value = this->DH_current_public_value;
-  // std::vector<unsigned char> sentdata;
-  // msg.serialize(sentdata);
-  // this->network_driver->send(sentdata);
+  std::string input = std::string(iv.begin(), iv.end()) + ciphertext;
+  msg.mac = this->crypto_driver->HMAC_generate(hmackey, input);
+  msg.messageIndex = this->sentmessagecount++;
+  msg.previousMessageIndex = this->previouscount;
   return msg;
 }
 
@@ -99,31 +108,88 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
   // Lock will automatically release at the end of the function.
   std::unique_lock<std::mutex> lck(this->mtx);
   // TODO: implement me!
-  //check if the ratchet is changed
-  if (this->DH_last_other_public_value != msg.public_value){
-    //not equal, update it
-    //alter the switch signal
-    this->DH_switched = true;
-    //use new key
-    std::tuple<DH, SecByteBlock, SecByteBlock> result = this->crypto_driver->DH_initialize(this->DH_params);
-    CryptoPP::DH dh = std::get<0>(result);
-    CryptoPP:: SecByteBlock prv = std::get<1>(result);
-    CryptoPP:: SecByteBlock pub = std::get<2>(result);
-    this->prepare_keys(dh, this->DH_current_private_value, msg.public_value);
-    this->DH_last_other_public_value = msg.public_value;
+  // //check if the ratchet is changed
+  // if (this->DH_last_other_public_value != msg.public_value){
+  //   //not equal, update it
+  //   //alter the switch signal
+  //   this->DH_switched = true;
+  //   //use new key
+  //   std::tuple<DH, SecByteBlock, SecByteBlock> result = this->crypto_driver->DH_initialize(this->DH_params);
+  //   CryptoPP::DH dh = std::get<0>(result);
+  //   CryptoPP:: SecByteBlock prv = std::get<1>(result);
+  //   CryptoPP:: SecByteBlock pub = std::get<2>(result);
+  //   this->prepare_keys(dh, this->DH_current_private_value, msg.public_value);
+  //   this->DH_last_other_public_value = msg.public_value;
+  // }
+  //  //mac concatenation
+  //   std::string temp = std::string(msg.iv.begin(), msg.iv.end());
+  //   std::string input = temp+msg.ciphertext;
+  //   //verify
+  //   bool verification = this->crypto_driver->HMAC_verify(this->HMAC_key, input, msg.mac);
+  //   std::string decryptresult = "";
+  //   if(verification){ 
+  //     //decrypt
+  //    decryptresult = this->crypto_driver->AES_decrypt(this->AES_key, msg.iv, msg.ciphertext);
+  //   }
+  //   return std::make_pair(decryptresult, verification);
+
+  // check skipped message key cache
+  std::string pub_key_str = byteblock_to_string(msg.public_value);
+  auto skipped_it = this->skippedmessagekey.find({pub_key_str, msg.messageIndex});
+
+  if (skipped_it != this->skippedmessagekey.end()) {
+    SecByteBlock currentkey = skipped_it->second;
+    this->skippedmessagekey.erase(skipped_it);
+    SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
+    SecByteBlock hmackey = this->crypto_driver->HMAC_generate_key(currentkey);
+    std::string input = std::string(msg.iv.begin(), msg.iv.end()) + msg.ciphertext;
+    bool ok = this->crypto_driver->HMAC_verify(hmackey, input, msg.mac);
+    if (!ok) return {"", false};
+    return {this->crypto_driver->AES_decrypt(aeskey, msg.iv, msg.ciphertext), true};
   }
-   //mac concatenation
-    std::string temp = std::string(msg.iv.begin(), msg.iv.end());
-    std::string input = temp+msg.ciphertext;
-    //verify
-    bool verification = this->crypto_driver->HMAC_verify(this->HMAC_key, input, msg.mac);
-    std::string decryptresult = "";
-    if(verification){ 
-      //decrypt
-     decryptresult = this->crypto_driver->AES_decrypt(this->AES_key, msg.iv, msg.ciphertext);
+
+  // DH ratchet if peer used a new public key
+  std::string last_pub_str = byteblock_to_string(this->DH_last_other_public_value);
+  if (pub_key_str != last_pub_str) {
+    // cache skipped keys from old receiving chain up to previousMessageIndex
+    while (this->receivedmessagecount < msg.previousMessageIndex) {
+      auto p = this->crypto_driver->generateChainKey(this->receivechainkey);
+      this->skippedmessagekey[{last_pub_str, this->receivedmessagecount}] = p.first;
+      this->receivechainkey = p.second;
+      this->receivedmessagecount++;
     }
-    return std::make_pair(decryptresult, verification);
-  
+    // DH ratchet: update rootkey and receivechainkey
+    CryptoPP::DH dh(this->DH_params.p, this->DH_params.q, this->DH_params.g);
+    SecByteBlock dh_out = this->crypto_driver->DH_generate_shared_key(
+        dh, this->DH_current_private_value, msg.public_value);
+    auto root_p = this->crypto_driver->generateRootKey(this->rootkey, dh_out);
+    this->rootkey = root_p.first;
+    this->receivechainkey = root_p.second;
+    this->DH_last_other_public_value = msg.public_value;
+    this->receivedmessagecount = 0;
+    this->DH_switched = true;
+  }
+
+  // cache any skipped keys in current receiving chain
+  while (this->receivedmessagecount < msg.messageIndex) {
+    auto p = this->crypto_driver->generateChainKey(this->receivechainkey);
+    this->skippedmessagekey[{pub_key_str, this->receivedmessagecount}] = p.first;
+    this->receivechainkey = p.second;
+    this->receivedmessagecount++;
+  }
+
+  // get current message key and decrypt
+  auto final_p = this->crypto_driver->generateChainKey(this->receivechainkey);
+  SecByteBlock currentkey = final_p.first;
+  this->receivechainkey = final_p.second;
+  this->receivedmessagecount++;
+
+  SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
+  SecByteBlock hmackey = this->crypto_driver->HMAC_generate_key(currentkey);
+  std::string input = std::string(msg.iv.begin(), msg.iv.end()) + msg.ciphertext;
+  bool ok = this->crypto_driver->HMAC_verify(hmackey, input, msg.mac);
+  if (!ok) return {"", false};
+  return {this->crypto_driver->AES_decrypt(aeskey, msg.iv, msg.ciphertext), true};
 }
 
 /**
@@ -193,7 +259,22 @@ void Client::HandleKeyExchange(std::string command) {
   //generate dh, aes, hmac
   this->DH_last_other_public_value = othermsg1.public_value;
   this->prepare_keys(dh, prv, othermsg1.public_value);
-  this->DH_switched = false;
+
+  //initialize root key and chain key from initial dh shared key
+  SecByteBlock initialshared = this->crypto_driver->DH_generate_shared_key(dh, prv, othermsg1.public_value);
+  auto [newrootkey, newchainkey] = this->crypto_driver->generateRootKey(initialshared, initialshared);
+  this->rootkey = newrootkey;
+
+  if (command == "connect"){
+    this->sentchainkey = newchainkey;
+    this->DH_switched = false;
+  }else{
+    this->receivechainkey = newchainkey;
+    this->DH_switched = true;
+  }
+  this->sentmessagecount = 0;
+  this->receivedmessagecount = 0;
+  this->previouscount = 0;
 }
 
 /**

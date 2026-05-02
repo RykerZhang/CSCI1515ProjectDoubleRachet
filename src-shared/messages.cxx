@@ -80,6 +80,7 @@ void DHParams_Message::serialize(std::vector<unsigned char> &data) {
   put_integer(this->p, data);
   put_integer(this->q, data);
   put_integer(this->g, data);
+
 }
 
 /**
@@ -138,6 +139,9 @@ void Message_Message::serialize(std::vector<unsigned char> &data) {
   put_string(public_integer, data);
   put_string(this->ciphertext, data);
   put_string(this->mac, data);
+
+  data.insert(data.end(), (uint8_t*)&this->messageIndex, (uint8_t*)&this->messageIndex + sizeof(uint32_t));
+  data.insert(data.end(), (uint8_t*)&this->previousMessageIndex, (uint8_t*)&this->previousMessageIndex + sizeof(uint32_t));
 }
 
 /**
@@ -157,5 +161,8 @@ int Message_Message::deserialize(std::vector<unsigned char> &data) {
   this->public_value = string_to_byteblock(public_integer);
   n += get_string(&this->ciphertext, data, n);
   n += get_string(&this->mac, data, n);
+
+  std::memcpy(&this->messageIndex, &data[n], sizeof(uint32_t));  n += sizeof(uint32_t);
+  std::memcpy(&this->previousMessageIndex, &data[n], sizeof(uint32_t)); n += sizeof(uint32_t);
   return n;
 }

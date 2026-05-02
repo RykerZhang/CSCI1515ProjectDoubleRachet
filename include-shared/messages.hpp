@@ -48,9 +48,10 @@ struct DHParams_Message : public Serializable {
   CryptoPP::Integer p;
   CryptoPP::Integer q;
   CryptoPP::Integer g;
-
+  
   void serialize(std::vector<unsigned char> &data);
   int deserialize(std::vector<unsigned char> &data);
+  
 };
 
 struct PublicValue_Message : public Serializable {
@@ -66,6 +67,8 @@ struct Message_Message : public Serializable {
   std::string ciphertext;
   std::string mac;
 
+  uint32_t messageIndex = 0;
+  uint32_t previousMessageIndex = 0;
   void serialize(std::vector<unsigned char> &data);
   int deserialize(std::vector<unsigned char> &data);
 };

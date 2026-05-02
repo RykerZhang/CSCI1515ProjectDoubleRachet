@@ -42,4 +42,8 @@ public:
   SecByteBlock HMAC_generate_key(const SecByteBlock &DH_shared_key);
   std::string HMAC_generate(SecByteBlock key, std::string ciphertext);
   bool HMAC_verify(SecByteBlock key, std::string ciphertext, std::string hmac);
+  std::pair<SecByteBlock, SecByteBlock> generateRootKey(SecByteBlock rootkey, SecByteBlock DH_output);
+  std::pair<SecByteBlock, SecByteBlock> generateChainKey(SecByteBlock chainkey);
+  
+
 };

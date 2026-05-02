@@ -262,3 +262,36 @@ bool CryptoDriver::HMAC_verify(SecByteBlock key, std::string ciphertext,
     return false;
   }
 }
+
+/**
+ *use HKDF to generate root key
+ */
+std::pair<SecByteBlock, SecByteBlock> CryptoDriver::generateRootKey(SecByteBlock rootkey, SecByteBlock DH_output){
+  HKDF<SHA256> hkdf;
+  SecByteBlock res(64);
+  hkdf.DeriveKey(res, 64, DH_output, DH_output.size(), rootkey, rootkey.size(), nullptr, 0);
+  SecByteBlock newrootkey(res, 32);
+  SecByteBlock newchainkey(res+32, 32);
+  return {newrootkey, newchainkey};
+}
+
+/**
+ * use hmac to get currentkey and chainkey for next cycle
+ */
+std::pair<SecByteBlock, SecByteBlock>CryptoDriver::generateChainKey(SecByteBlock chainKey){
+  SecByteBlock currentkey(SHA256::DIGESTSIZE);
+  SecByteBlock newchainkey (SHA256::DIGESTSIZE);
+  
+  byte b1 = 0x01;
+  HMAC<SHA256> hmac1(chainKey, chainKey.size());
+  hmac1.Update(&b1, 1);
+  hmac1.Final(currentkey.BytePtr());
+
+  byte b2 = 0x02;
+  HMAC<SHA256> hmac2(chainKey, chainKey.size());
+  hmac2.Update(&b2, 1);
+  hmac2.Final(newchainkey.BytePtr());
+
+  return {currentkey, newchainkey};
+  
+}
