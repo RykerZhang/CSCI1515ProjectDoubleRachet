@@ -107,33 +107,8 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
   // Grab the lock to avoid race conditions between the receive and send threads
   // Lock will automatically release at the end of the function.
   std::unique_lock<std::mutex> lck(this->mtx);
-  // TODO: implement me!
-  // //check if the ratchet is changed
-  // if (this->DH_last_other_public_value != msg.public_value){
-  //   //not equal, update it
-  //   //alter the switch signal
-  //   this->DH_switched = true;
-  //   //use new key
-  //   std::tuple<DH, SecByteBlock, SecByteBlock> result = this->crypto_driver->DH_initialize(this->DH_params);
-  //   CryptoPP::DH dh = std::get<0>(result);
-  //   CryptoPP:: SecByteBlock prv = std::get<1>(result);
-  //   CryptoPP:: SecByteBlock pub = std::get<2>(result);
-  //   this->prepare_keys(dh, this->DH_current_private_value, msg.public_value);
-  //   this->DH_last_other_public_value = msg.public_value;
-  // }
-  //  //mac concatenation
-  //   std::string temp = std::string(msg.iv.begin(), msg.iv.end());
-  //   std::string input = temp+msg.ciphertext;
-  //   //verify
-  //   bool verification = this->crypto_driver->HMAC_verify(this->HMAC_key, input, msg.mac);
-  //   std::string decryptresult = "";
-  //   if(verification){ 
-  //     //decrypt
-  //    decryptresult = this->crypto_driver->AES_decrypt(this->AES_key, msg.iv, msg.ciphertext);
-  //   }
-  //   return std::make_pair(decryptresult, verification);
 
-  // check skipped message key cache
+  // check skipped message 
   std::string pub_key_str = byteblock_to_string(msg.public_value);
   auto skipped_it = this->skippedmessagekey.find({pub_key_str, msg.messageIndex});
 
@@ -148,7 +123,6 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
     return {this->crypto_driver->AES_decrypt(aeskey, msg.iv, msg.ciphertext), true};
   }
 
-  // DH ratchet if peer used a new public key
   std::string last_pub_str = byteblock_to_string(this->DH_last_other_public_value);
   if (pub_key_str != last_pub_str) {
     // cache skipped keys from old receiving chain up to previousMessageIndex
@@ -158,7 +132,7 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
       this->receivechainkey = p.second;
       this->receivedmessagecount++;
     }
-    // DH ratchet: update rootkey and receivechainkey
+
     CryptoPP::DH dh(this->DH_params.p, this->DH_params.q, this->DH_params.g);
     SecByteBlock dh_out = this->crypto_driver->DH_generate_shared_key(
         dh, this->DH_current_private_value, msg.public_value);
@@ -170,7 +144,7 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
     this->DH_switched = true;
   }
 
-  // cache any skipped keys in current receiving chain
+  //unreceived messages, meessageindex larger than receovedmessagecount
   while (this->receivedmessagecount < msg.messageIndex) {
     auto p = this->crypto_driver->generateChainKey(this->receivechainkey);
     this->skippedmessagekey[{pub_key_str, this->receivedmessagecount}] = p.first;
