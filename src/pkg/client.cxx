@@ -13,6 +13,21 @@
 #include "../../include-shared/util.hpp"
 #include "colors.hpp"
 
+namespace {
+bool demo_key_logging_enabled() {
+  const char *flag = std::getenv("SIGNAL_DEMO_KEYS");
+  return flag != nullptr && std::string(flag) == "1";
+}
+
+std::string key_prefix(const CryptoPP::SecByteBlock &key) {
+  std::string hex;
+  CryptoPP::StringSource ss(
+      key.BytePtr(), key.size(), true,
+      new CryptoPP::HexEncoder(new CryptoPP::StringSink(hex), false));
+  return hex.substr(0, 16);
+}
+}  
+
 /**
  * Constructor. Sets up TCP socket and starts REPL
  * @param network_driver NetworkDriver to handle network operations i.e. sending and receiving msgs 
@@ -77,6 +92,11 @@ Message_Message Client::send(std::string plaintext) {
   // send chain, get message key
   auto [currentkey, nextsentchainkey] = this->crypto_driver->generateChainKey(this->sentchainkey);
   this->sentchainkey = nextsentchainkey;
+  if (demo_key_logging_enabled()) {
+    std::cerr << "[demo send] N=" << this->sentmessagecount
+              << " message_key_prefix=" << key_prefix(currentkey)
+              << std::endl;
+  }
 
   // derive AES and HMAC keys from message key
   SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
@@ -115,6 +135,11 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
   if (skipped_it != this->skippedmessagekey.end()) {
     SecByteBlock currentkey = skipped_it->second;
     this->skippedmessagekey.erase(skipped_it);
+    if (demo_key_logging_enabled()) {
+      std::cerr << "[demo recv skipped] N=" << msg.messageIndex
+                << " message_key_prefix=" << key_prefix(currentkey)
+                << std::endl;
+    }
     SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
     SecByteBlock hmackey = this->crypto_driver->HMAC_generate_key(currentkey);
     std::string input = std::string(msg.iv.begin(), msg.iv.end()) + msg.ciphertext;
@@ -157,6 +182,11 @@ std::pair<std::string, bool> Client::receive(Message_Message msg) {
   SecByteBlock currentkey = final_p.first;
   this->receivechainkey = final_p.second;
   this->receivedmessagecount++;
+  if (demo_key_logging_enabled()) {
+    std::cerr << "[demo recv] N=" << msg.messageIndex
+              << " message_key_prefix=" << key_prefix(currentkey)
+              << std::endl;
+  }
 
   SecByteBlock aeskey = this->crypto_driver->AES_generate_key(currentkey);
   SecByteBlock hmackey = this->crypto_driver->HMAC_generate_key(currentkey);
